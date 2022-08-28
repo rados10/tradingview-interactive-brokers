@@ -40,3 +40,6 @@ flask run
 * Redis pubsub - https://www.twilio.com/blog/sms-microservice-python-twilio-redis-pub-sub, https://redislabs.com/ebook/part-2-core-concepts/chapter-3-commands-in-redis/3-6-publishsubscribe/
 * asyncio snippet - https://stackoverflow.com/questions/54153332/schedule-asyncio-task-to-execute-every-x-seconds
 * ib_insyc examples - https://github.com/hackingthemarkets/interactive-brokers-demo/blob/main/order.py
+
+
+
