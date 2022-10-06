@@ -2,11 +2,13 @@
 // © radosfe
 
 //@version=5
-strategy("Radek My Chandalier", overlay=true, process_orders_on_close = true, default_qty_value = 1000, default_qty_type = strategy.cash, initial_capital = 2500)
+strategy("Radek My Chandalier", calc_on_order_fills=true, overlay=true, process_orders_on_close = true, default_qty_value = 20, default_qty_type = strategy.percent_of_equity, initial_capital = 50000)
 
 // STEP 1:
 // Make inputs that set the take profit % (optional)
 
+endOfDay = input.int(defval=1500, title="Close all trades, default is 3:00 PM, 1500 hours (integer)")
+startOfDay = input.int(defval=935, title="Open all trades, default is 9:45 AM, 945 hours (integer)")
 
 TP1Perc = input.float(defval=5, title="Long Take Profit (%)", minval=0.0, group="TP & SL", step=0.1)
 TP2Perc = input.float(title="Long Take Profit (%)", minval=0.0, step=0.1, defval=10, group="TP & SL")
@@ -18,6 +20,7 @@ SLSPerc = input.float(title="Short Stop Loss (%)", minval=0.0, step=0.1, defval=
 
 
 TP1_Ratio = input.float(title="Sell Postion Size % @ TP1", defval=50, step=1, group="TP & SL", tooltip="Example: 50 closing 50% of the position once TP1 is reached")/100
+payload = '{"passphrase": "somelongstring123","time": "{{timenow}}","exchange": "{{exchange}}","ticker": "{{ticker}}","bar": {"time": "{{time}}","open": {{open}},"high": {{high}},"low": {{low}}, "close": {{close}},"volume": {{volume}}},"strategy": {"position_size": {{strategy.position_size}},"order_action": "{{strategy.order.action}}","order_contracts": {{strategy.order.contracts}},"order_price": {{strategy.order.price}},"order_id": "{{strategy.order.id}}","market_position": "{{strategy.market_position}}","market_position_size": {{strategy.market_position_size}},"prev_market_position": "{{strategy.prev_market_position}}","prev_market_position_size": {{strategy.prev_market_position_size}}}}'
 
 // Date and Time
 
@@ -32,35 +35,11 @@ start = timestamp(startYear, startMonth, startDay, 00,00)
 end = timestamp(endYear, endMonth, endDay, 23, 59)
 // period() > time >= start and time <= end ? true : false
 
-a = input("kucoin", "API Account Name")
-//Exchange
-//e = input("kucoin", "Exchange [e=]", options=["kucoin"])
-e = "kucoin"
-
-//Symbol
-csb = input(false, "If the TV symbol matches the Exchange.")
-sval = input("dot-usdt", "TV Ticker")
-// s = input(title="Session", defval="24x7", options=["24x7", "0900-1300", "1300-1700", "1700-2100"])
-s = csb ? syminfo.ticker : sval
 
 //Book
 b = input.string(title="b=", defval="short", options=["long", "short"])
 
-//Testing mode
-d = input.string(title="Debugging 0/1", defval="1", options=["0", "1"])
-    
-//Price
-//pt = input.string("Calculated", "Price Type [p=/fp=]", options=["Calculated", "Calculated percentage", "Fixed", "Fixed percentage"])
-//p = input(0, "Price")
 
-//Order type
-//t = input.string("limit", "Order Type [t=]", options=["limit", "market", "fok", "ioc", "post", "close", "open", "settle", "stop"])
-t = "t=market"
-
-//Quantity
-//q = input.string(title="Quantity Value", defval="100", "")
-q = input("100", "Size")
- // q = str.tostring(strategy.position_siqze)
 
 length = input.int(defval=22, title = "ATR Value")
 mult = input.float(title="ATR Multiplier", step=0.1, defval=3.0)
@@ -69,8 +48,11 @@ useClose = input.bool(title="Use Close Price for Extremums ?", defval=true)
 highlightState = input.bool(title="Highlight State ?", defval=true)
 trailig = input.bool(title="Trailing Stop Loss ?", defval=true)
 
+var sellSignal = false
+var buySignal = false
 
 atr = mult * ta.atr(length)
+var float tradeSize = na
 
 longStop = (useClose ? ta.highest(close, length) : ta.highest(length)) - atr
 longStopPrev = nz(longStop[1], longStop) 
@@ -87,16 +69,20 @@ sdir := close < longStopPrev ? 1 : close > shortStopPrev ? -1: sdir
 
 var color longColor = color.new(color.green, 80)
 var color shortColor = color.new(color.red,80)
-
-longStopPlot = plot(dir == 1 ? longStop : na, title="Long Stop", style=plot.style_linebr, linewidth=2, color=longColor)
-buySignal = dir == 1 and dir[1] == -1
+if (position_size > 0) 
+    buySignal = dir == 1 and dir[1] == -1
+    
+if (position_size < 0) 
+    sellSignal = sdir == 1 and sdir[1] == -1
+ 
 plotshape(buySignal ? longStop : na, title="Long Stop Start", location=location.absolute, style=shape.circle, size=size.tiny, color=longColor, transp=0)
 plotshape(buySignal and showLabels ? longStop : na, title="Buy Label", text="Buy", location=location.absolute, style=shape.labelup, size=size.tiny, color=longColor, textcolor=color.white, transp=0)
-
-shortStopPlot = plot(dir == 1 ? na : shortStop, title="Short Stop", style=plot.style_linebr, linewidth=2, color=shortColor)
-sellSignal = sdir == 1 and sdir[1] == -1
+longStopPlot = plot(dir == 1 ? longStop : na, title="Long Stop", style=plot.style_linebr, linewidth=2, color=longColor)
+    
 plotshape(sellSignal ? shortStop : na, title="Short Stop Start", location=location.absolute, style=shape.circle, size=size.tiny, color=shortColor, transp=0)
 plotshape(sellSignal and showLabels ? shortStop : na, title="Sell Label", text="Sell", location=location.absolute, style=shape.labeldown, size=size.tiny, color=shortColor, textcolor=color.white, transp=0)
+shortStopPlot = plot(sdir == 1 ? shortStop : na, title="Short Stop", style=plot.style_linebr, linewidth=2, color=shortColor)
+    
 
 midPricePlot = plot(ohlc4, title="", style=plot.style_circles, linewidth=0, display=display.none, editable=false)
 
@@ -120,36 +106,58 @@ STP1  = strategy.position_avg_price + percentAsPoints(TP1SPerc) * syminfo.mintic
 STP2  = strategy.position_avg_price + percentAsPoints(TP2SPerc) * syminfo.mintick * strategy.position_size / math.abs(strategy.position_size)
 SSL   = strategy.position_avg_price - percentAsPoints(SLSPerc) * syminfo.mintick * strategy.position_size / math.abs(strategy.position_size)
 
-// STEP 3:
-// Submit exit orders based on take profit price
 
-// if target 1 reached then move stop to buy price
-if (strategy.position_size != 0) and (close > TP1) 
-    SL2 = strategy.position_avg_price * syminfo.mintick * strategy.position_size / math.abs(strategy.position_size)
+h = hour(time('1'), syminfo.timezone)
+m = minute(time('1'), syminfo.timezone)
+hourVal = h * 100 + m
+if (hourVal < endOfDay) and (hourVal > startOfDay)
 
+    //enter long
+    if buySignal and b=="long"
+        tradeSize := strategy.position_size
+        strategy.entry(id = "Long", direction = strategy.long, when = buySignal, alert_message=payload)
+        
 
+    if sellSignal and b=="short"
+        tradeSize := strategy.position_size
+        strategy.entry(id = "Short", direction = strategy.short, when = sellSignal, alert_message=payload)
+        
+    // STEP 3:
+    // Submit exit orders based on take profit price
 
-if strategy.position_size > 0 
-    strategy.exit("TP1 Long", from_entry="Long", qty = initial_position_size * TP1_Ratio, limit = TP1, stop = SL, alert_message="TP1 Long Achieved|e=kucoin" + " a=kucoin" + " s=" + sval + " b=short" + " t=market" + " d=" + d + " y=repay" + " q=" + str.tostring(str.tonumber(q) * TP1_Ratio))
-    strategy.exit("TP2 Long", from_entry="Long", limit = TP2, stop = SL2, alert_message="TP2 Long Achieved|e=kucoin" + " u=c" + " a=kucoin" + " s=" + sval + " b=short" + " t=market" + " d=" + d + " y=repay" + " q=" + str.tostring(str.tonumber(q) * TP1_Ratio))
+    if strategy.position_size > 0 
+        
+        strategy.exit("TP1 Long", from_entry="Long", qty = initial_position_size * TP1_Ratio, limit = TP1, stop = SL, alert_message=payload)
+        strategy.exit("TP2 Long", from_entry="Long", limit = TP2, stop = SL, alert_message=payload)
 
-if strategy.position_size < 0     
-    strategy.exit("TP1 Short", from_entry="Short", qty = initial_position_size * TP1_Ratio, limit = STP1, stop = SSL, alert_message="TP1 Short Achieved|e=kucoin" + " a=kucoin" + " s=" + sval + " b=long" + " t=market" + " d=" + d + " y=repay" + " q=" + str.tostring(str.tonumber(q) * TP1_Ratio))
-    strategy.exit("TP2 Short", from_entry="Short", limit = STP2, stop = SSL, alert_message="TP2 Short Achieved|e=kucoin" + " u=c" + " a=kucoin" + " s=" + sval + " b=long" + " t=market" + " d=" + d + " y=repay" + " q=" + str.tostring(str.tonumber(q) * TP1_Ratio))
+    if strategy.position_size < 0  
+          
+        strategy.exit("TP1 Short", from_entry="Short", qty = initial_position_size * TP1_Ratio, limit = STP1, stop = SSL, alert_message=payload)
+        strategy.exit("TP2 Short", from_entry="Short", limit = STP2, stop = SSL, alert_message=payload)
+        
+     // if target 1 reached then move stop to buy price
+    if (strategy.position_size != tradeSize)
+        SL := strategy.position_avg_price
+        SSL := strategy.position_avg_price
+        TP1 := na
+        STP1 := na
+        
+       
+else
+    strategy.close_all(comment = "Close all entries at end of day.", alert_message=payload)
     
-    // strategy.exit("Stop", from_entry="Long", stop)
-    
-    //if strategy.exit == "TP1 Long"
-        //alert(message="TP1 Long target achieved")
-    //if TP2
-      //  alert(message="TP2 Long target achieved")
-    //if SL
-      //  alert(message="Stop Loss hit")
-    
-//if strategy.position_size < 0
-  //  strategy.exit("TP1 Short", from_entry="Short", qty = initial_position_size * TP1_Ratio, limit = TP1, stop = SL, alert_message="TP1 Short")
-  //    strategy.exit("TP2 Short", from_entry="Short", limit = TP2, stop = SL) 
-    
+
+//alertcondition(TP1, message="Target 1 reached")
+longFillColor = highlightState ? (dir == 1 ? longColor : na) : na
+shortFillColor = highlightState ? (dir == -1 ? shortColor : na) : na
+fill(midPricePlot, longStopPlot, title="Long State Filling", color=longFillColor, transp=1)
+fill(midPricePlot, shortStopPlot, title="Short State Filling", color=shortFillColor, transp=1)
+
+changeCond = dir != dir[1]
+//alertcondition(changeCond, title="Alert: CE Direction Change", message="Chandelier Exit has changed direction!")
+//alertcondition(buySignal, title="Alert: CE Buy", message="e=ttt b=long q=5 y=borrow u=c a=ttt s=DOT-USDT t=market") 
+//alertcondition(sellSignal, title="Alert: CE Sell", message="e=tttt b=short q=5 y=repay u=c a=ttt s=DOT-USDT t=market")
+
 // Plot take profit values for confirmation
 plot(series=(strategy.position_size > 0) ? TP1 : na, color=color.green, style=plot.style_circles, linewidth=1, title="Take Profit 1")
 plot(series=(strategy.position_size > 0) ? TP2 : na, color=color.green, style=plot.style_circles, linewidth=1, title=" Take Profit 2")
@@ -158,24 +166,4 @@ plot(series=(strategy.position_size > 0) ? SL : na, color=color.red, style=plot.
 // Plot take profit values for confirmation
 plot(series=(strategy.position_size < 0) ? TP1 : na, color=color.red, style=plot.style_circles, linewidth=1, title="Short Take Profit 1")
 plot(series=(strategy.position_size < 0) ? TP2 : na, color=color.red, style=plot.style_circles, linewidth=1, title=" Short Take Profit 2")
-plot(series=(strategy.position_size < 0) ? SL : na, color=color.green, style=plot.style_circles, linewidth=1, title="Short Stop Loss")
-
-//enter long
-if buySignal and b=="long"
-    strategy.entry(id = "Long", direction = strategy.long, when = buySignal, alert_message="e=kucoin" + " a=kucoin" + " u=c" + " s=" + sval + " b=long" + " t=market" + " d=" + d + " ab=1" + " q=" + q)
-fb
-if sellSignal and b=="short"
-    strategy.entry(id = "Short", direction = strategy.short, when = sellSignal, alert_message="e=kucoin" + " a=kucoin" + " u=c" + " s=" + sval + " b=short" + " t=market" + " d=" + d + " ab=1" + " q=" + q)
-     
-
-longFillColor = highlightState ? (dir == 1 ? longColor : na) : na
-shortFillColor = highlightState ? (dir == -1 ? shortColor : na) : na
-fill(midPricePlot, longStopPlot, title="Long State Filling", color=longFillColor, transp=1)
-fill(midPricePlot, shortStopPlot, title="Short State Filling", color=shortFillColor, transp=1)
-
-//alertcondition(TP1, message="Target 1 reached")
-
-changeCond = dir != dir[1]
-//alertcondition(changeCond, title="Alert: CE Direction Change", message="Chandelier Exit has changed direction!")
-//alertcondition(buySignal, title="Alert: CE Buy", message="e=ttt b=long q=5 y=borrow u=c a=ttt s=DOT-USDT t=market") 
-//alertcondition(sellSignal, title="Alert: CE Sell", message="e=tttt b=short q=5 y=repay u=c a=ttt s=DOT-USDT t=market")
+plot(series=(strategy.position_size < 0) ? SSL : na, color=color.green, style=plot.style_circles, linewidth=1, title="Short Stop Loss")

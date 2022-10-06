@@ -41,5 +41,6 @@ flask run
 * asyncio snippet - https://stackoverflow.com/questions/54153332/schedule-asyncio-task-to-execute-every-x-seconds
 * ib_insyc examples - https://github.com/hackingthemarkets/interactive-brokers-demo/blob/main/order.py
 
-
+## miscellaneous
+* I'm labeling instruments with the following in trading view: pink is BOW watchlist, orange is my TV Ichimoku scanner, green is IB active morning scanner, red will be Discord ideas
 
