@@ -1,0 +1,120 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// � pradipandsuvra
+
+//@version=5
+strategy(title="5m-HA-Scalping-BOW", shorttitle="5m-HA-Scalping-BOW", default_qty_value = 10, default_qty_type = strategy.percent_of_equity, initial_capital = 30000, overlay = true)
+
+
+// Inputs
+endOfDay = input.int(defval=1550, title="Close all trades, default is 3:00 PM, 1500 hours (integer)")
+startOfDay = input.int(defval=935, title="Open all trades, default is 9:45 AM, 945 hours (integer)")
+longorshort = input.string(defval="Long", title="Long or Short")
+MaxTrades = input.int(defval=1, title="Max Trades")
+longTrailPercent = input.float(defval=1, title="Long Trail Percent") * 0.01
+shortTailPercent = input.float(defval=1, title="Short Trail Percent") * 0.01
+
+sma = ta.ema(close, 9)
+src_trend = request.security(syminfo.tickerid, "15", close)
+sma_trend = ta.sma(src_trend,9)
+sma_slope = (sma_trend - sma_trend[50])/50
+
+//vwap = ta.vwap(close, volume)
+
+payload = '{"passphrase": "somelongstring123","time": "{{timenow}}","exchange": "{{exchange}}","ticker": "{{ticker}}","bar": {"time": "{{time}}","open": {{open}},"high": {{high}},"low": {{low}}, "close": {{close}},"volume": {{volume}}},"strategy": {"position_size": {{strategy.position_size}},"order_action": "{{strategy.order.action}}","order_contracts": {{strategy.order.contracts}},"order_price": {{strategy.order.price}},"order_id": "{{strategy.order.id}}","market_position": "{{strategy.market_position}}","market_position_size": {{strategy.market_position_size}},"prev_market_position": "{{strategy.prev_market_position}}","prev_market_position_size": {{strategy.prev_market_position_size}}}}'
+
+//plot(sma, color=color.blue)
+//plot(sma_trend, color=color.green)
+//label.new(bar_index, high, str.tostring(sma_slope))
+
+stoch = ta.stoch(close, 5, 5, 3)
+
+table t = table.new(position.top_right, 1, 2, color.black)
+table.cell(t,0,0, "SMA Slope: " + str.tostring(sma_slope), text_color=color.white, text_size=size.normal)
+table.cell(t,0,1, "Stoch: " + str.tostring(stoch), text_color = color.blue, text_size=size.normal)
+
+rsi = ta.rsi(close, 14)
+
+// long condition appears to 1) slope of sma is positive and 2) rsi is at or above 70 and last bar closed over the 9 sma
+
+
+longCond = barstate.isconfirmed and (sma_slope > 0) and (stoch <= 30) and ta.crossover(close, sma) and close > ta.vwap and (longorshort == "Long")
+shortCond = barstate.isconfirmed and (sma_slope < 0) and (stoch >= 80) and ta.crossunder(close, sma) and close < ta.vwap and (longorshort == "Short")
+
+
+//plotshape(longCond, title='Buy', text='Buy', location=location.belowbar, style=shape.labelup, size=size.tiny, color=color.green, textcolor=color.new(color.white, 0))
+//plotshape(shortCond, title='Sell', text='Sell', location=location.abovebar, style=shape.labeldown, size=size.tiny, color=color.red, textcolor=color.new(color.white, 0))
+
+
+// ATR for SL
+// atr = ta.atr(14)
+// highestHigh = ta.highest(high, 7)
+// lowestLow = ta.lowest(low, 7)
+// longStop = lowestLow - (atr * 1)
+// shortStop = highestHigh + (atr * 1)
+// plot(longStop, title="ATR Buy SL", color=color.green, style=plot.style_cross)
+// plot(shortStop, title="ATR Sell SL", color=color.red, style=plot.style_cross)
+
+// Long Trailing Stop
+longStop = 0.0
+longStop := if (strategy.position_size > 0)
+    stopValue = close - (1 - longTrailPercent)
+    math.max(stopValue, longStop[1])
+else 
+    0.0
+
+// Short Trailing Stop
+shortStop = 0.0
+shortStop := if (strategy.position_size < 0)
+    stopValue = close + (1 + shortTailPercent)
+    math.min(stopValue, shortStop[1])
+else 
+    999999
+
+plot(longStop, color=color.green, linewidth=input(1, "Line Width"), title="Long Trailing Stop")
+plot(shortStop, color=color.red, linewidth=input(1, "Line Width"), title="Short Trailing Stop")
+
+// Trade execute
+
+// lotSize = strategy.position_size.value.default_qty_value
+// assing lot size based on defined default quantity value
+//lotSize = strategy.default_qty_value
+
+
+
+h = hour(time('1'), syminfo.timezone)
+m = minute(time('1'), syminfo.timezone)
+hourVal = h * 100 + m
+var int num_trades = 0
+
+if (hourVal < endOfDay) and (hourVal > startOfDay)
+    // Entry
+    var float sl = na
+    var float target = na
+    if (longCond) and num_trades < MaxTrades
+        // strategy.entry("enter long", strategy.long, limit=na, stop=na, comment="Enter Long")
+        strategy.entry("enter long", strategy.long, comment="Enter Long", alert_message=payload) 
+        sl := longStop
+        target := close + (close - longStop) * 2
+        num_trades := num_trades + 1
+    if (shortCond) and num_trades < MaxTrades
+        // strategy.entry("enter short", strategy.short, lotSize, limit=na, stop=na, comment="Enter Short")
+        // strategy.entry("enter short", strategy.short, limit=na, stop=na, comment="Enter Short")
+        strategy.entry("enter short", strategy.short, comment="Enter Short", alert_message=payload) 
+        sl := shortStop
+        target := close - (shortStop - close) * 2
+        num_trades := num_trades + 1
+
+    // Exit: target or SL
+    if (close >= target) 
+        strategy.close("enter long", comment="Long target hit", alert_message=payload)
+    if (close <= target) 
+        strategy.close("enter short", comment="Short target hit", alert_message=payload)
+    if (close >= sl)
+        strategy.exit("enter long", comment="Long SL hit", stop=longStop, alert_message=payload)
+    if (close <= sl)
+        strategy.exit("enter short", comment="Short SL hit", stop=shortStop, alert_message=payload)
+
+else
+    // Close all open position at the end if Day
+    num_trades := 0
+    strategy.close_all(comment = "Close all entries at end of day.", alert_message=payload)
